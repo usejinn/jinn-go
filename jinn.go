@@ -39,13 +39,16 @@ func New(key string) *Client {
 	return &Client{Key: key, BaseURL: DefaultBaseURL, HTTP: &http.Client{Timeout: 60 * time.Second}}
 }
 
-// Error is the API's answer to a request it refused.
+// Error is the API's answer to a request it refused. Code is stable
+// (no_credit, suspended, not_found, …; the API docs list them); Message is
+// for people.
 type Error struct {
 	Status  int
+	Code    string
 	Message string
 }
 
-func (e *Error) Error() string { return fmt.Sprintf("jinn: %d: %s", e.Status, e.Message) }
+func (e *Error) Error() string { return fmt.Sprintf("jinn: %d %s: %s", e.Status, e.Code, e.Message) }
 
 // do sends a JSON request and decodes the JSON answer into out.
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
@@ -79,13 +82,14 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	}
 	if resp.StatusCode >= 300 {
 		var e struct {
+			Code  string `json:"code"`
 			Error string `json:"error"`
 		}
 		_ = json.Unmarshal(data, &e)
 		if e.Error == "" {
 			e.Error = strings.TrimSpace(string(data))
 		}
-		return &Error{Status: resp.StatusCode, Message: e.Error}
+		return &Error{Status: resp.StatusCode, Code: e.Code, Message: e.Error}
 	}
 	if out == nil {
 		return nil

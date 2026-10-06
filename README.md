@@ -83,7 +83,7 @@ http.HandleFunc("/jinn", func(w http.ResponseWriter, r *http.Request) {
 | `Bases(ctx)` | List the bases a function can boot. |
 | `VerifyWebhook(publicKey, header, body, now)` | Check a webhook and return its event. |
 
-A refused request returns a `*jinn.Error` with the HTTP status and the API's message. For example, `402` means the account has no credit.
+A refused request returns a `*jinn.Error` with the HTTP `Status`, a stable `Code` and the API's `Message`. Switch on `Code`: for example `no_credit`, `suspended` or `not_found`. The [API docs](https://docs.usejinn.com/api#errors) list every code.
 
 ## Links
 
