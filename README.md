@@ -1,38 +1,94 @@
-# Jinn for Go
+# Jinn Go SDK
 
-The Go client and the CLI for [Jinn](https://usejinn.com): run agent work as a call. A prompt and a folder in, a folder out.
+[![Go Reference](https://pkg.go.dev/badge/usejinn.com/go.svg)](https://pkg.go.dev/usejinn.com/go)
 
-This repository is published from Jinn's own source. Open issues here; changes come in from there.
+The Go client for the [Jinn](https://usejinn.com) API. Jinn runs agent work as a call: you send a prompt and a folder, and you get back the files you asked for.
 
-## The CLI
+It has no dependencies outside the standard library. The command-line tool is [jinn-cli](https://github.com/usejinn/jinn-cli).
 
-```sh
-curl -fsSL https://docs.usejinn.com/install.sh | sh
-# or
-go install usejinn.com/go/cmd/jinn@latest
-
-jinn login
-jinn run summarise --prompt "Summarise these notes." --in ./notes --out ./result
-```
-
-Every command is in the [CLI docs](https://docs.usejinn.com/cli).
-
-## The SDK
+## Install
 
 ```sh
 go get usejinn.com/go
 ```
 
+## Authenticate
+
+An account owner makes an API key at [app.usejinn.com](https://app.usejinn.com) under **Account**. Pass it to `New`:
+
 ```go
+import jinn "usejinn.com/go"
+
 c := jinn.New(os.Getenv("JINN_KEY"))
-in, err := c.UploadFolder(ctx, "./ticket")
-run, err := c.StartRun(ctx, "fnc_5d2a91c07e4b38f6a1d0c2e9", jinn.RunRequest{Prompt: "Answer this ticket.", Input: in})
-run, err = c.Wait(ctx, run.ID)
-if run.State == jinn.Succeeded {
-	err = c.DownloadOutput(ctx, run, "./result")
-}
 ```
 
-`jinn.VerifyWebhook` checks a webhook's signature. The package has no dependencies outside the standard library.
+## Run a function
 
-Docs: [docs.usejinn.com](https://docs.usejinn.com) · API: [openapi.json](https://docs.usejinn.com/openapi.json) · Licence: MIT
+```go
+ctx := context.Background()
+
+// Upload the input folder. It arrives in the run as /workspace/in.
+in, err := c.UploadFolder(ctx, "./ticket")
+if err != nil {
+	log.Fatal(err)
+}
+
+run, err := c.StartRun(ctx, "fnc_5d2a91c07e4b38f6a1d0c2e9", jinn.RunRequest{
+	Prompt:            "Answer this ticket.",
+	Input:             in,
+	ExternalReference: "ticket-4812",
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+run, err = c.Wait(ctx, run.ID) // reads the run every 5 seconds
+if err != nil {
+	log.Fatal(err)
+}
+if run.State != jinn.Succeeded {
+	log.Fatalf("%s: %s", run.Failure, run.Detail)
+}
+err = c.DownloadOutput(ctx, run, "./result") // checks the SHA-256, then unpacks
+```
+
+## Get the result by webhook
+
+Start the run with a `Webhook` address. Jinn posts the run there when it ends. Check the signature with your account's public key (`whpk_…`, in the console):
+
+```go
+http.HandleFunc("/jinn", func(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	event, err := jinn.VerifyWebhook(publicKey, r.Header, body, time.Now())
+	if err != nil {
+		http.Error(w, "bad signature", http.StatusBadRequest)
+		return
+	}
+	log.Printf("%s %s", event.Type, event.Data.ID) // run.succeeded run_…
+})
+```
+
+## Reference
+
+| Call | What it does |
+|---|---|
+| `StartRun(ctx, function, RunRequest)` | Start a run. Every call is a new run. |
+| `Run(ctx, id)` / `Wait(ctx, id)` | Read a run, or read it until it ends. |
+| `Runs(ctx, RunsQuery)` | List runs, newest first, a page at a time. |
+| `Log(ctx, id)` | The run's log so far: setup output, the agent's messages and tool calls. |
+| `Upload(ctx, tar)` / `UploadFolder(ctx, dir)` | Upload an input folder. Returns a `file_…` id. |
+| `DownloadOutput(ctx, run, dir)` | Download and unpack a succeeded run's output folder. |
+| `Functions`, `Function`, `CreateFunction`, `Publish` | Read and publish functions. Each publish is a new version. |
+| `Providers`, `Catalog`, `CreateProvider`, `PublishProvider` | Manage model providers and their keys. |
+| `Bases(ctx)` | List the bases a function can boot. |
+| `VerifyWebhook(publicKey, header, body, now)` | Check a webhook and return its event. |
+
+A refused request returns a `*jinn.Error` with the HTTP status and the API's message. For example, `402` means the account has no credit.
+
+## Links
+
+- [Docs](https://docs.usejinn.com): functions, runs, webhooks and examples.
+- [API](https://docs.usejinn.com/api) and [OpenAPI](https://docs.usejinn.com/openapi.json).
+- Licence: MIT.
+
+This repository is published from Jinn's main source. Open issues here.

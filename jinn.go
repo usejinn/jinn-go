@@ -1,4 +1,5 @@
-// Package jinn is the Go client for Jinn's API (https://api.usejinn.com/v1).
+// Package jinn is the Go client for Jinn's API (https://api.usejinn.com/v1). The
+// command-line tool is a separate module, usejinn.com/jinn.
 //
 // A function is a published definition: a base, setup commands, a provider,
 // a system prompt, tools and the files it returns. A run is one call of a
