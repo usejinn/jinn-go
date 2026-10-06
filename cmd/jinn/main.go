@@ -9,6 +9,10 @@
 //	jinn show run_…                              print a run as JSON
 //	jinn logs run_… [--follow]                   print a run's log
 //	jinn output run_… --out DIR                  download a run's output folder
+//	jinn providers                               list the account's providers
+//	jinn models VENDOR                           list the models a vendor key can use (key on stdin)
+//	jinn provider NAME|prv_… --vendor V --model M [--effort E] [--compact N] [--max-output N]
+//	                                             make a provider, or publish its next version (key on stdin)
 //
 // The key comes from JINN_KEY, else ~/.config/jinn/key (jinn login writes it).
 // JINN_API changes the API's address.
@@ -20,6 +24,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -40,7 +45,11 @@ const usage = `jinn: run agent work as a call.
   jinn show run_…
   jinn logs run_… [--follow]
   jinn output run_… --out DIR
+  jinn providers
+  jinn models openai|anthropic|xai                 < vendor-key
+  jinn provider NAME|prv_… --vendor V --model M [--effort E] [--compact N] [--max-output N]   < vendor-key
 
+Vendor keys are read from stdin, never from a flag: echo "$OPENAI_API_KEY" | jinn models openai
 The key comes from JINN_KEY, else ~/.config/jinn/key. Docs: https://docs.usejinn.com/cli
 `
 
@@ -72,6 +81,12 @@ func main() {
 		err = logs(ctx, args)
 	case "output":
 		err = output(ctx, args)
+	case "providers":
+		err = providers(ctx)
+	case "models":
+		err = models(ctx, args)
+	case "provider":
+		err = provider(ctx, args)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
@@ -442,6 +457,130 @@ func output(ctx context.Context, args []string) error {
 		return err
 	}
 	return c.DownloadOutput(ctx, r, *out)
+}
+
+func providers(ctx context.Context) error {
+	c, err := client()
+	if err != nil {
+		return err
+	}
+	list, err := c.Providers(ctx)
+	for _, p := range list {
+		v := p.Versions[0]
+		effort := v.Model.ReasoningEffort
+		if effort == "" {
+			effort = "-"
+		}
+		fmt.Printf("%-28s %-24s v%-3d %-9s %-28s %s\n", p.ID, p.Name, p.Latest, v.Model.Provider, v.Model.Model, effort)
+	}
+	return err
+}
+
+// vendorKey reads a vendor's API key from stdin, so it never sits in a
+// flag, the shell's history or the process list.
+func vendorKey() (string, error) {
+	if info, err := os.Stdin.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
+		fmt.Fprint(os.Stderr, "Paste the vendor's API key, then press Enter: ")
+	}
+	b, err := io.ReadAll(io.LimitReader(os.Stdin, 8192))
+	if err != nil {
+		return "", err
+	}
+	key := strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
+	if key == "" {
+		return "", errors.New("no key on stdin: echo \"$KEY\" | jinn …")
+	}
+	return key, nil
+}
+
+func models(ctx context.Context, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: jinn models openai|anthropic|xai < vendor-key")
+	}
+	key, err := vendorKey()
+	if err != nil {
+		return err
+	}
+	c, err := client()
+	if err != nil {
+		return err
+	}
+	list, err := c.Catalog(ctx, args[0], key)
+	for _, m := range list {
+		efforts := strings.Join(m.Efforts, ",")
+		if m.DefaultEffort != "" {
+			efforts += " (default " + m.DefaultEffort + ")"
+		}
+		fmt.Printf("%-36s %s\n", m.ID, efforts)
+	}
+	return err
+}
+
+// providerID resolves a name to the account's one provider of that name.
+func providerID(ctx context.Context, c *jinn.Client, nameOrID string) (string, error) {
+	if strings.HasPrefix(nameOrID, "prv_") {
+		return nameOrID, nil
+	}
+	list, err := c.Providers(ctx)
+	if err != nil {
+		return "", err
+	}
+	var ids []string
+	for _, p := range list {
+		if p.Name == nameOrID {
+			ids = append(ids, p.ID)
+		}
+	}
+	switch len(ids) {
+	case 0:
+		return "", fmt.Errorf("no provider is named %s", nameOrID)
+	case 1:
+		return ids[0], nil
+	}
+	return "", fmt.Errorf("%d providers are named %s; use an id: %s", len(ids), nameOrID, strings.Join(ids, ", "))
+}
+
+// provider makes a provider, or publishes the next version of the one
+// named: a new key, a new model or both. Jinn checks the key and the model
+// against the vendor's catalog.
+func provider(ctx context.Context, args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return errors.New("usage: jinn provider NAME|prv_… --vendor V --model M [--effort E] [--compact N] [--max-output N] < vendor-key")
+	}
+	fs := flag.NewFlagSet("provider", flag.ContinueOnError)
+	vendor := fs.String("vendor", "", "openai, anthropic or xai")
+	model := fs.String("model", "", "the model's id (jinn models VENDOR lists them)")
+	effort := fs.String("effort", "", "the reasoning effort, if the model takes one")
+	compact := fs.Int("compact", 200000, "the history size, in tokens, at which a run compacts")
+	maxOutput := fs.Int("max-output", 0, "the most tokens per reply (0: the model's maximum)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *vendor == "" || *model == "" {
+		return errors.New("name the --vendor and the --model")
+	}
+	key, err := vendorKey()
+	if err != nil {
+		return err
+	}
+	c, err := client()
+	if err != nil {
+		return err
+	}
+	m := jinn.Model{Provider: *vendor, Model: *model, ReasoningEffort: *effort, CompactAtTokens: *compact, MaxOutputTokens: *maxOutput}
+	id, err := providerID(ctx, c, args[0])
+	var p jinn.ProviderVersion
+	switch {
+	case err == nil:
+		p, err = c.PublishProvider(ctx, id, m, key)
+	case strings.HasPrefix(err.Error(), "no provider"):
+		p, err = c.CreateProvider(ctx, args[0], m, key)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("→ %s %s v%d · use %s@latest in a function's provider\n", p.Name, p.ID, p.Version, p.ID)
+	return nil
 }
 
 func took(r jinn.Run) string {
