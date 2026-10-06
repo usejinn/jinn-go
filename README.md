@@ -49,7 +49,7 @@ if err != nil {
 if run.State != jinn.Succeeded {
 	log.Fatalf("%s: %s", run.Failure, run.Detail)
 }
-err = c.DownloadOutput(ctx, run, "./result") // checks the SHA-256, then unpacks
+err = c.DownloadOutput(ctx, run, "./result") // checks the SHA-256, then unpacks the .tar.gz
 ```
 
 ## Get the result by webhook
@@ -76,7 +76,7 @@ http.HandleFunc("/jinn", func(w http.ResponseWriter, r *http.Request) {
 | `Run(ctx, id)` / `Wait(ctx, id)` | Read a run, or read it until it ends. |
 | `Runs(ctx, RunsQuery)` | List runs, newest first, a page at a time. |
 | `Log(ctx, id)` | The run's log so far: setup output, the agent's messages and tool calls. |
-| `Upload(ctx, tar)` / `UploadFolder(ctx, dir)` | Upload an input folder. Returns a `file_…` id. |
+| `Upload(ctx, tarGz)` / `UploadFolder(ctx, dir)` | Upload an input folder as a `.tar.gz`. Returns a `file_…` id. |
 | `DownloadOutput(ctx, run, dir)` | Download and unpack a succeeded run's output folder. |
 | `Functions`, `Function`, `CreateFunction`, `Publish` | Read and publish functions. Each publish is a new version. |
 | `Providers`, `Catalog`, `CreateProvider`, `PublishProvider` | Manage model providers and their keys. |

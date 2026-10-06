@@ -3,6 +3,7 @@ package jinn
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -58,8 +59,9 @@ type Run struct {
 // Done reports whether the run has its result.
 func (r Run) Done() bool { return r.State == Succeeded || r.State == Failed }
 
-// Output is a succeeded run's output folder: one .tar at URL (a link that
-// works for 15 minutes from the read that returned it).
+// Output is a succeeded run's output folder: one .tar.gz at URL (a link that
+// works for 15 minutes from the read that returned it). Bytes and SHA256 are
+// the .tar.gz's.
 type Output struct {
 	SHA256    string      `json:"sha256"`
 	Bytes     int64       `json:"bytes"`
@@ -209,7 +211,7 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 
 // ── Files ────────────────────────────────────────────────────────────
 
-// Upload sends a run's input folder, as one .tar, and returns its file id.
+// Upload sends a run's input folder, as one .tar.gz, and returns its file id.
 func (c *Client) Upload(ctx context.Context, data []byte) (string, error) {
 	sum := sha256.Sum256(data)
 	var f struct {
@@ -241,10 +243,12 @@ func (c *Client) Upload(ctx context.Context, data []byte) (string, error) {
 	return f.ID, nil
 }
 
-// UploadFolder tars a folder's regular files and folders (no links) and uploads it.
+// UploadFolder packs a folder's regular files and folders (no links) as a
+// .tar.gz and uploads it.
 func (c *Client) UploadFolder(ctx context.Context, dir string) (string, error) {
 	var b bytes.Buffer
-	tw := tar.NewWriter(&b)
+	zw := gzip.NewWriter(&b)
+	tw := tar.NewWriter(zw)
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -276,6 +280,9 @@ func (c *Client) UploadFolder(ctx context.Context, dir string) (string, error) {
 	if err := tw.Close(); err != nil {
 		return "", err
 	}
+	if err := zw.Close(); err != nil {
+		return "", err
+	}
 	return c.Upload(ctx, b.Bytes())
 }
 
@@ -291,7 +298,11 @@ func (c *Client) DownloadOutput(ctx context.Context, r Run, dir string) error {
 	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != r.Output.SHA256 {
 		return errors.New("jinn: the output does not match its SHA-256")
 	}
-	tr := tar.NewReader(bytes.NewReader(data))
+	zr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	tr := tar.NewReader(zr)
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
