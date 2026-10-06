@@ -95,7 +95,8 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 
 // ── Definitions ──────────────────────────────────────────────────────
 
-// Definition is what a function version holds.
+// Definition is what a function version holds. Base, Provider, SystemPrompt,
+// Size and TimeoutMinutes are required; a list left nil is empty.
 type Definition struct {
 	// Base is one of Jinn's disks (Bases lists them).
 	Base string `json:"base"`
@@ -111,8 +112,9 @@ type Definition struct {
 	OutputManifest []ManifestEntry `json:"output_manifest"`
 	Environment    []EnvVar        `json:"environment"`
 	// Size is s, m, l or xl.
-	Size           string `json:"size"`
-	TimeoutMinutes int    `json:"timeout_minutes"`
+	Size string `json:"size"`
+	// TimeoutMinutes is 1 to 1440; setup counts towards it.
+	TimeoutMinutes int `json:"timeout_minutes"`
 }
 
 // ManifestEntry is a file, or a folder when Path ends in /, that must be
