@@ -107,7 +107,8 @@ type Definition struct {
 	// Setup runs before the agent, each command as root in its own
 	// bash -euo pipefail -c, with network access and Environment.
 	Setup []string `json:"setup"`
-	// Provider names a provider version: prv_…@3 or prv_…@latest.
+	// Provider names a provider version: prv_…@3 or prv_…@latest, or by
+	// name, openai@3 or openai@latest. Publishing stores a name as the id.
 	Provider       string          `json:"provider"`
 	SystemPrompt   string          `json:"system_prompt"`
 	Tools          []string        `json:"tools"`
