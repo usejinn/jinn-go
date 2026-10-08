@@ -48,7 +48,7 @@ type Run struct {
 	StartedAt         *time.Time `json:"started_at,omitempty"`
 	EndedAt           *time.Time `json:"ended_at,omitempty"`
 	// Failure is input, no_submission, timeout, provider, infrastructure,
-	// setup or suspended; Detail says more.
+	// setup, suspended or credit; Detail says more.
 	Failure string  `json:"failure,omitempty"`
 	Detail  string  `json:"detail,omitempty"`
 	Message string  `json:"message,omitempty"`
