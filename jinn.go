@@ -103,7 +103,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 // OutputManifest (at least one entry) are required. Publishing fills in what
 // is left zero, and the version stores
 // it: Base the newest base, Provider the account's only provider, Size "m",
-// TimeoutMinutes 30, Tools bash, read, write and edit (an empty, non-nil
+// TimeoutMinutes 30, Tools bash, read, write, edit and web_search (an empty, non-nil
 // slice is no tools), other lists empty.
 type Definition struct {
 	// Base is one of Jinn's disks (Bases lists them).
