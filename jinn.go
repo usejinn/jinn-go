@@ -99,8 +99,9 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 
 // ── Definitions ──────────────────────────────────────────────────────
 
-// Definition is what a function version holds. Only SystemPrompt is
-// required. Publishing fills in what is left zero, and the version stores
+// Definition is what a function version holds. SystemPrompt and
+// OutputManifest (at least one entry) are required. Publishing fills in what
+// is left zero, and the version stores
 // it: Base the newest base, Provider the account's only provider, Size "m",
 // TimeoutMinutes 30, Tools bash, read, write and edit (an empty, non-nil
 // slice is no tools), other lists empty.
