@@ -99,16 +99,19 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 
 // ── Definitions ──────────────────────────────────────────────────────
 
-// Definition is what a function version holds. Base, Provider, SystemPrompt,
-// Size and TimeoutMinutes are required; a list left nil is empty.
+// Definition is what a function version holds. Only SystemPrompt is
+// required. Publishing fills in what is left zero, and the version stores
+// it: Base the newest base, Provider the account's only provider, Size "m",
+// TimeoutMinutes 30, Tools bash, read, write and edit (an empty, non-nil
+// slice is no tools), other lists empty.
 type Definition struct {
 	// Base is one of Jinn's disks (Bases lists them).
 	Base string `json:"base"`
 	// Setup runs before the agent, each command as root in its own
 	// bash -euo pipefail -c, with network access and Environment.
 	Setup []string `json:"setup"`
-	// Provider names a provider version: prv_…@3 or prv_…@latest, or by
-	// name, openai@3 or openai@latest. Publishing stores a name as the id.
+	// Provider names a provider: openai (its latest version), openai@3,
+	// prv_…@3 or prv_…@latest. Publishing stores a name as the id.
 	Provider       string          `json:"provider"`
 	SystemPrompt   string          `json:"system_prompt"`
 	Tools          []string        `json:"tools"`
@@ -123,7 +126,7 @@ type Definition struct {
 }
 
 // ManifestEntry is a file, or a folder when Path ends in /, that must be
-// in the input or output folder, at most MaxBytes.
+// in the input or output folder, at most MaxBytes (zero: the limit).
 type ManifestEntry struct {
 	Path        string `json:"path"`
 	Description string `json:"description"`
@@ -132,7 +135,7 @@ type ManifestEntry struct {
 
 // CustomTool is a tool you serve over HTTPS. Jinn POSTs the agent's
 // arguments with the tool's secret as a bearer token. Send Secret once;
-// later versions send the SecretID Jinn returned.
+// later versions send the SecretID Jinn returned. TimeoutSeconds zero is 30.
 type CustomTool struct {
 	Name           string          `json:"name"`
 	Description    string          `json:"description"`
