@@ -171,7 +171,8 @@ func (c *Client) WaitCommand(ctx context.Context, run, id string) (Command, erro
 }
 
 // CommandPage is a run's commands that changed after a sequence, in the
-// order they changed, and the run's state and sequence: the next since.
+// order they changed, about 4 MiB at most, the run's state, and the
+// sequence to send as the next since.
 type CommandPage struct {
 	State    string    `json:"state"`
 	Sequence int64     `json:"sequence"`
@@ -189,8 +190,9 @@ func (c *Client) Commands(ctx context.Context, run string, since int64, wait tim
 	return page, c.do(ctx, "GET", "/v1/runs/"+url.PathEscape(run)+"/commands?"+q.Encode(), nil, &page)
 }
 
-// OutputPage is a piece of a bash command's output: Next is the offset to
-// read from next; Done says the command ended.
+// OutputPage is a piece of a bash command's output, at most 512 KiB: Next
+// is the offset to read from next; Done says the command ended and this is
+// the last of its output.
 type OutputPage struct {
 	Output      string `json:"output"`
 	Next        int64  `json:"next"`
