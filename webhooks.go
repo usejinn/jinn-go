@@ -11,13 +11,36 @@ import (
 	"time"
 )
 
-// Event is a webhook's body: run.succeeded or run.failed, with the run as
-// Run returns it.
+// Event types.
+const (
+	EventRunRunning      = "run.running"
+	EventRunMaintenance  = "run.maintenance"
+	EventRunSucceeded    = "run.succeeded"
+	EventRunFailed       = "run.failed"
+	EventCommandFinished = "command.finished"
+)
+
+// Event is a webhook's body. A run's events carry the run as Run returns it;
+// command.finished carries the command. Sequence is the run's, at the
+// change the event tells of.
 type Event struct {
-	ID      string    `json:"id"`
-	Type    string    `json:"type"`
-	Created time.Time `json:"created"`
-	Data    Run       `json:"data"`
+	ID       string          `json:"id"`
+	Type     string          `json:"type"`
+	Created  time.Time       `json:"created"`
+	Sequence int64           `json:"sequence"`
+	Data     json.RawMessage `json:"data"`
+}
+
+// Run is a run event's run.
+func (e Event) Run() (Run, error) {
+	var r Run
+	return r, json.Unmarshal(e.Data, &r)
+}
+
+// Command is a command.finished event's command.
+func (e Event) Command() (Command, error) {
+	var c Command
+	return c, json.Unmarshal(e.Data, &c)
 }
 
 // VerifyWebhook checks a webhook (Standard Webhooks, v1a, Ed25519) with your

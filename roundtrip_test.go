@@ -56,3 +56,43 @@ func TestFoldersTravelAsTarGz(t *testing.T) {
 		t.Fatalf("sub/a.txt = %q", b)
 	}
 }
+
+// Exec sends a bash command and long-polls it to its result; Finish reads
+// whether the run's output was accepted.
+func TestExecAndFinish(t *testing.T) {
+	var sent []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/v1/runs/run_1/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			sent = append(sent, body)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "cmd_1", "run": "run_1", "kind": body["kind"], "state": "queued"})
+		case r.URL.Path == "/v1/runs/run_1/commands/cmd_1" && r.URL.Query().Get("wait") == "25":
+			result := map[string]any{"exit_code": 3, "output": "boom", "output_bytes": 4}
+			if sent[len(sent)-1]["kind"] == KindFinish {
+				result = map[string]any{"accepted": false, "problems": []string{"report.md is missing"}}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "cmd_1", "state": "succeeded", "result": result})
+		default:
+			http.Error(w, `{"code":"not_found","error":"no"}`, 404)
+		}
+	}))
+	defer srv.Close()
+	c := New("k")
+	c.BaseURL = srv.URL
+	res, err := c.Exec(context.Background(), "run_1", BashArgs{Command: "make", Env: map[string]string{"CI": "1"}})
+	if err != nil || res.ExitCode != 3 || res.Output != "boom" {
+		t.Fatalf("exec %+v %v", res, err)
+	}
+	if args := sent[0]["arguments"].(map[string]any); sent[0]["kind"] != "bash" || args["command"] != "make" || args["env"].(map[string]any)["CI"] != "1" {
+		t.Fatalf("sent %v", sent[0])
+	}
+	f, err := c.Finish(context.Background(), "run_1", FinishArgs{State: Succeeded})
+	if err != nil || f.Accepted || f.Problems[0] != "report.md is missing" {
+		t.Fatalf("finish %+v %v", f, err)
+	}
+	if _, err := c.Run(context.Background(), "run_x"); err == nil || err.(*Error).Code != "not_found" {
+		t.Fatalf("error %v", err)
+	}
+}

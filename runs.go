@@ -17,6 +17,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -31,14 +32,18 @@ const (
 
 // Run is one run as the API returns it.
 type Run struct {
-	ID                string     `json:"id"`
-	Account           string     `json:"account"`
-	Function          string     `json:"function"`
-	Version           int        `json:"version"`
-	Base              string     `json:"base"`
-	Size              string     `json:"size"`
-	Provider          string     `json:"provider"`
-	Prompt            string     `json:"prompt"`
+	ID       string `json:"id"`
+	Account  string `json:"account"`
+	Function string `json:"function"`
+	Version  int    `json:"version"`
+	// Image is the disk the run booted: an img_… or a base's name.
+	Image string `json:"image"`
+	Size  string `json:"size"`
+	// Agent says the function has an agent; Provider is its provider
+	// version.
+	Agent             bool       `json:"agent"`
+	Provider          string     `json:"provider,omitempty"`
+	Prompt            string     `json:"prompt,omitempty"`
 	Input             string     `json:"input,omitempty"`
 	Webhook           string     `json:"webhook,omitempty"`
 	ExternalReference string     `json:"external_reference,omitempty"`
@@ -46,28 +51,37 @@ type Run struct {
 	CreatedAt         time.Time  `json:"created_at"`
 	CreatedBy         string     `json:"created_by"`
 	StartedAt         *time.Time `json:"started_at,omitempty"`
-	EndedAt           *time.Time `json:"ended_at,omitempty"`
-	// Failure is input, no_submission, timeout, provider, infrastructure,
-	// setup, suspended or credit; Detail says more.
-	Failure string  `json:"failure,omitempty"`
-	Detail  string  `json:"detail,omitempty"`
+	// ReadyAt is when setup finished and commands began.
+	ReadyAt *time.Time `json:"ready_at,omitempty"`
+	EndedAt *time.Time `json:"ended_at,omitempty"`
+	// Failure is input, incomplete, timeout, provider, infrastructure,
+	// setup, suspended, credit or maintenance; Detail says more.
+	Failure string `json:"failure,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	// Message is the end of the agent's last text.
 	Message string  `json:"message,omitempty"`
 	Output  *Output `json:"output,omitempty"`
 	Usage   *Usage  `json:"usage,omitempty"`
+	// Sequence counts the run's changes, its commands' included.
+	Sequence int64 `json:"sequence"`
+	// MaintenanceAt is when Jinn will end the run to replace its host.
+	MaintenanceAt *time.Time `json:"maintenance_at,omitempty"`
 }
 
 // Done reports whether the run has its result.
 func (r Run) Done() bool { return r.State == Succeeded || r.State == Failed }
 
-// Output is a succeeded run's output folder: one .tar.gz at URL (a link that
-// works for 15 minutes from the read that returned it). Bytes and SHA256 are
-// the .tar.gz's.
+// Output is what a run returned: its output folder when it succeeded with
+// files (one .tar.gz at URL, a link that works for 15 minutes from the read
+// that returned it; Bytes and SHA256 are the .tar.gz's), and the image it
+// saved, if its function saves one.
 type Output struct {
-	SHA256    string      `json:"sha256"`
-	Bytes     int64       `json:"bytes"`
-	Files     []FileEntry `json:"files"`
-	FileCount int         `json:"file_count"`
-	URL       string      `json:"url"`
+	SHA256    string      `json:"sha256,omitempty"`
+	Bytes     int64       `json:"bytes,omitempty"`
+	Files     []FileEntry `json:"files,omitempty"`
+	FileCount int         `json:"file_count,omitempty"`
+	URL       string      `json:"url,omitempty"`
+	Image     string      `json:"image,omitempty"`
 }
 
 type FileEntry struct {
@@ -76,11 +90,14 @@ type FileEntry struct {
 	Dir   bool   `json:"dir,omitempty"`
 }
 
-// Usage is what a run used: the VM's size and seconds, and the model's tokens.
+// Usage is what a run used: the VM's size, seconds and traffic, and the
+// model's tokens.
 type Usage struct {
 	Compute struct {
-		Size    string `json:"size"`
-		Seconds int64  `json:"seconds"`
+		Size     string `json:"size"`
+		Seconds  int64  `json:"seconds"`
+		BytesIn  int64  `json:"bytes_in"`
+		BytesOut int64  `json:"bytes_out"`
 	} `json:"compute"`
 	Model struct {
 		Calls            int   `json:"calls"`
@@ -92,13 +109,18 @@ type Usage struct {
 	} `json:"model"`
 }
 
-// RunRequest starts a run. Version 0 is the function's latest.
+// RunRequest starts a run. Version 0 is the function's latest. A function
+// with an agent needs a Prompt; one without refuses it. Image boots another
+// disk than the function's; Environment adds variables, or replaces the
+// function's by name.
 type RunRequest struct {
-	Version           int    `json:"version,omitempty"`
-	Prompt            string `json:"prompt"`
-	Input             string `json:"input,omitempty"`
-	Webhook           string `json:"webhook,omitempty"`
-	ExternalReference string `json:"external_reference,omitempty"`
+	Version           int      `json:"version,omitempty"`
+	Prompt            string   `json:"prompt,omitempty"`
+	Image             string   `json:"image,omitempty"`
+	Environment       []EnvVar `json:"environment,omitempty"`
+	Input             string   `json:"input,omitempty"`
+	Webhook           string   `json:"webhook,omitempty"`
+	ExternalReference string   `json:"external_reference,omitempty"`
 }
 
 // StartRun starts a run of a function; every call is a new run.
@@ -151,16 +173,18 @@ func (c *Client) Runs(ctx context.Context, q RunsQuery) (runs []Run, next string
 	return out.Runs, out.Next, err
 }
 
-// LogEvent is one line of a run's log: what happened at At. Kind is
-// system, user, provider, vm, setup, reasoning, text, tool_call,
-// tool_output, model, compacted, retry, result or host; Fields hold the rest.
+// LogEvent is one line of a run's log: what happened at At. The host writes
+// disk, vm, input, setup, ready, command, command_end, image, traffic,
+// result and host; the agent writes system, user, provider, reasoning, text,
+// tool_call, tool_output, model, compacted and retry. Fields hold the rest.
 type LogEvent struct {
 	At     time.Time
 	Kind   string
 	Fields map[string]any
 }
 
-// Log reads a run's log so far. A running run adds to it about every 30 seconds.
+// Log reads a run's log so far, in time order. A running run adds to it
+// about every 30 seconds.
 func (c *Client) Log(ctx context.Context, id string) ([]LogEvent, error) {
 	var parts struct {
 		Parts []string `json:"parts"`
@@ -189,6 +213,7 @@ func (c *Client) Log(ctx context.Context, id string) ([]LogEvent, error) {
 			events = append(events, e)
 		}
 	}
+	sort.SliceStable(events, func(i, j int) bool { return events[i].At.Before(events[j].At) })
 	return events, nil
 }
 
@@ -211,7 +236,8 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 
 // ── Files ────────────────────────────────────────────────────────────
 
-// Upload sends a run's input folder, as one .tar.gz, and returns its file id.
+// Upload sends a file (a run's input folder, as one .tar.gz, or a file a
+// put command copies into a run) and returns its file id.
 func (c *Client) Upload(ctx context.Context, data []byte) (string, error) {
 	sum := sha256.Sum256(data)
 	var f struct {
@@ -288,7 +314,7 @@ func (c *Client) UploadFolder(ctx context.Context, dir string) (string, error) {
 
 // DownloadOutput unpacks a succeeded run's output folder into dir.
 func (c *Client) DownloadOutput(ctx context.Context, r Run, dir string) error {
-	if r.Output == nil {
+	if r.Output == nil || r.Output.URL == "" {
 		return errors.New("jinn: the run has no output")
 	}
 	data, err := c.get(ctx, r.Output.URL)
@@ -298,6 +324,12 @@ func (c *Client) DownloadOutput(ctx context.Context, r Run, dir string) error {
 	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != r.Output.SHA256 {
 		return errors.New("jinn: the output does not match its SHA-256")
 	}
+	return untarGz(data, dir)
+}
+
+// untarGz unpacks a .tar.gz into dir: its regular files and folders, by
+// clean paths inside it.
+func untarGz(data []byte, dir string) error {
 	zr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return err

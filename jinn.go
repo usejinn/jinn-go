@@ -1,15 +1,21 @@
 // Package jinn is the Go client for Jinn's API (https://api.usejinn.com/v1). The
 // command-line tool is a separate module, usejinn.com/jinn.
 //
-// A function is a published definition: a base, setup commands, a provider,
-// a system prompt, tools and the files it returns. A run is one call of a
-// function: a prompt and an optional input folder in, an output folder out.
+// A function is a versioned definition of a run: the image it boots, setup
+// commands, variables, a size and, optionally, an agent. A run of a function
+// with an agent takes a prompt and returns a folder:
 //
 //	c := jinn.New(os.Getenv("JINN_KEY"))
 //	in, _ := c.UploadFolder(ctx, "./ticket")
 //	run, _ := c.StartRun(ctx, "fnc_…", jinn.RunRequest{Prompt: "Answer this ticket.", Input: in})
 //	run, _ = c.Wait(ctx, run.ID)
 //	_ = c.DownloadOutput(ctx, run, "./result")
+//
+// A run of a function without one is a VM you drive with commands:
+//
+//	run, _ := c.StartRun(ctx, "fnc_…", jinn.RunRequest{})
+//	res, _ := c.Exec(ctx, run.ID, jinn.BashArgs{Command: "npm test"})
+//	_, _ = c.Finish(ctx, run.ID, jinn.FinishArgs{State: jinn.Succeeded})
 package jinn
 
 import (
@@ -99,31 +105,46 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 
 // ── Definitions ──────────────────────────────────────────────────────
 
-// Definition is what a function version holds. SystemPrompt and
-// OutputManifest (at least one entry) are required. Publishing fills in what
-// is left zero, and the version stores
-// it: Base the newest base, Provider the account's only provider, Size "m",
-// TimeoutMinutes 30, Tools all of them (an empty, non-nil
-// slice is no tools), other lists empty.
+// Definition is what a function version holds. Every field is optional:
+// publishing fills in what is left zero, and the version stores it (Image the
+// newest base, Size "m", lists empty; an Agent's Provider the account's only
+// provider and its Tools all of them, where an empty, non-nil slice is no
+// tools). A definition with an Agent is agentic: its runs take a prompt.
 type Definition struct {
-	// Base is one of Jinn's disks (Bases lists them).
-	Base string `json:"base"`
-	// Setup runs before the agent, each command as root in its own
-	// bash -euo pipefail -c, with network access and Environment.
-	Setup []string `json:"setup"`
+	// Image is the disk a run boots: one of the account's images (img_…)
+	// or one of Jinn's bases (Images lists both).
+	Image string `json:"image,omitempty"`
+	// Setup runs at the start of every run, each command as root in its own
+	// bash -euo pipefail -c, with network access and Environment. Commands
+	// must be safe to repeat: a run from a saved image runs them again.
+	Setup       []string `json:"setup,omitempty"`
+	Environment []EnvVar `json:"environment,omitempty"`
+	// Size is s, m, l or xl.
+	Size string `json:"size,omitempty"`
+	// TimeoutMinutes is 1 to 1440, setup included; 0 is none: the run
+	// lasts until it finishes.
+	TimeoutMinutes int             `json:"timeout_minutes,omitempty"`
+	InputManifest  []ManifestEntry `json:"input_manifest,omitempty"`
+	// OutputManifest is what /workspace/out must hold when the run
+	// finishes succeeded.
+	OutputManifest []ManifestEntry `json:"output_manifest,omitempty"`
+	// OutputImage saves the run's disk as an image when it succeeds, and
+	// when Jinn stops it.
+	OutputImage bool   `json:"output_image,omitempty"`
+	Agent       *Agent `json:"agent,omitempty"`
+}
+
+// Agent is Jinn's agent: a model with tools, working until it calls
+// complete (the run succeeds) or give_up (the run fails).
+type Agent struct {
 	// Provider names a provider: openai (its latest version), openai@3,
 	// prv_…@3 or prv_…@latest. Publishing stores a name as the id.
-	Provider       string          `json:"provider"`
-	SystemPrompt   string          `json:"system_prompt"`
-	Tools          []string        `json:"tools"`
-	CustomTools    []CustomTool    `json:"custom_tools"`
-	InputManifest  []ManifestEntry `json:"input_manifest"`
-	OutputManifest []ManifestEntry `json:"output_manifest"`
-	Environment    []EnvVar        `json:"environment"`
-	// Size is s, m, l or xl.
-	Size string `json:"size"`
-	// TimeoutMinutes is 1 to 1440; setup counts towards it.
-	TimeoutMinutes int `json:"timeout_minutes"`
+	Provider     string `json:"provider,omitempty"`
+	SystemPrompt string `json:"system_prompt"`
+	// Tools are the standard tools the model sees (nil: all of them; an
+	// empty slice: none).
+	Tools       []string     `json:"tools"`
+	CustomTools []CustomTool `json:"custom_tools,omitempty"`
 }
 
 // ManifestEntry is a file, or a folder when Path ends in /, that must be
@@ -147,8 +168,8 @@ type CustomTool struct {
 	TimeoutSeconds int             `json:"timeout_seconds"`
 }
 
-// EnvVar is an environment variable of setup and the agent's commands: a
-// Value, or a Secret sent once and kept by SecretID.
+// EnvVar is an environment variable of every command a run runs: a Value,
+// or a Secret sent once and kept by SecretID.
 type EnvVar struct {
 	Name     string `json:"name"`
 	Value    string `json:"value,omitempty"`
@@ -179,20 +200,6 @@ type FunctionSummary struct {
 	Function
 	Definition Version `json:"definition"`
 	Last       *Run    `json:"last"`
-}
-
-// Base is one of Jinn's disks.
-type Base struct {
-	Name   string `json:"name"`
-	SHA256 string `json:"sha256"`
-	Bytes  int64  `json:"bytes"`
-}
-
-func (c *Client) Bases(ctx context.Context) ([]Base, error) {
-	var out struct {
-		Bases []Base `json:"bases"`
-	}
-	return out.Bases, c.do(ctx, "GET", "/v1/bases", nil, &out)
 }
 
 func (c *Client) Functions(ctx context.Context) ([]FunctionSummary, error) {

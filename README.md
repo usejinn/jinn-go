@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/usejinn.com/go.svg)](https://pkg.go.dev/usejinn.com/go)
 
-The Go client for the [Jinn](https://usejinn.com) API. Jinn runs agent work as a call: you send a prompt and a folder, and you get back the files you asked for.
+The Go client for the [Jinn](https://usejinn.com) API. A Jinn function says what a run is: the disk it boots, its setup, its size and, if you want one, an agent. A run with an agent takes a prompt and a folder and gives back the files you asked for. A run without one is a VM you drive with commands, and it can save its disk as an image for the next run.
 
 It has no dependencies outside the standard library. The command-line tool is [jinn-cli](https://github.com/usejinn/jinn-cli).
 
@@ -54,7 +54,7 @@ err = c.DownloadOutput(ctx, run, "./result") // checks the SHA-256, then unpacks
 
 ## Get the result by webhook
 
-Start the run with a `Webhook` address. Jinn posts the run there when it ends. Check the signature with your account's public key (`whpk_…`, in the console):
+Start the run with a `Webhook` address. Jinn posts its events there: `run.running`, `run.maintenance`, `run.succeeded`, `run.failed` and `command.finished`. Check the signature with your account's public key (`whpk_…`, in the console):
 
 ```go
 http.HandleFunc("/jinn", func(w http.ResponseWriter, r *http.Request) {
@@ -64,31 +64,54 @@ http.HandleFunc("/jinn", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signature", http.StatusBadRequest)
 		return
 	}
-	log.Printf("%s %s", event.Type, event.Data.ID) // run.succeeded run_…
+	if event.Type == jinn.EventRunSucceeded {
+		run, _ := event.Run()
+		log.Printf("%s %s", event.Type, run.ID) // run.succeeded run_…
+	}
 })
 ```
+
+## Drive a run yourself
+
+A function without an agent is a VM you act on with commands. Commands run side by side; each waits for the VM's setup.
+
+```go
+run, err := c.StartRun(ctx, "fnc_…", jinn.RunRequest{Image: "img_…"}) // boot an image a run saved
+if err != nil {
+	log.Fatal(err)
+}
+res, err := c.Exec(ctx, run.ID, jinn.BashArgs{Command: "npm test", Workdir: "/workspace/app"})
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(res.ExitCode, res.Output)
+
+_ = c.Put(ctx, run.ID, "./fixture.json", "/workspace/app/fixture.json")
+_, _ = c.Get(ctx, run.ID, "/workspace/app/coverage", "./coverage")
+
+// Succeeded: /workspace/out is delivered and, if the function saves its
+// disk, the run's output names the new image.
+done, err := c.Finish(ctx, run.ID, jinn.FinishArgs{State: jinn.Succeeded})
+```
+
+`Tools` returns the standard tools' schemas, as Jinn's agent shows them to its model. A loop of your own can show its model the same tools and send each call as the command of the same kind.
 
 ## Reference
 
 | Call | What it does |
 |---|---|
 | `StartRun(ctx, function, RunRequest)` | Start a run. Every call is a new run. |
-| `Run(ctx, id)` / `Wait(ctx, id)` | Read a run, or read it until it ends. |
+| `Run(ctx, id)` / `Wait(ctx, id)` / `WaitReady(ctx, id)` | Read a run; read it until it ends, or until its setup has finished. |
 | `Runs(ctx, RunsQuery)` | List runs, newest first, a page at a time. |
-| `Log(ctx, id)` | The run's log so far: setup output, the agent's messages and tool calls. |
-| `Upload(ctx, tarGz)` / `UploadFolder(ctx, dir)` | Upload an input folder as a `.tar.gz`. Returns a `file_…` id. |
+| `Log(ctx, id)` | The run's log so far: setup, commands, the agent's messages and tool calls. |
+| `SendCommand(ctx, run, kind, args)` | Send a command: `bash`, `read`, `write`, `edit`, `list`, `put`, `get` or `finish`. |
+| `Command(ctx, run, id, wait)` / `WaitCommand(ctx, run, id)` | Read a command; read it until it ends. |
+| `Commands(ctx, run, since, wait)` | The run's commands that changed after a sequence. |
+| `CommandOutput(ctx, run, id, after, wait)` | What a bash command has written so far. |
+| `CancelCommand(ctx, run, id)` | Cancel a command. |
+| `Exec`, `Put`, `Get`, `Finish` | Send a command of that kind and wait for its result. |
+| `Images(ctx)` / `Image(ctx, id)` / `DeleteImage(ctx, id)` | The account's images and Jinn's bases. |
+| `Tools(ctx)` | The standard tools' schemas. |
+| `Upload(ctx, data)` / `UploadFolder(ctx, dir)` | Upload a file, or a folder as a `.tar.gz`. Returns a `file_…` id. |
 | `DownloadOutput(ctx, run, dir)` | Download and unpack a succeeded run's output folder. |
-| `Functions`, `Function`, `CreateFunction`, `Publish` | Read and publish functions. Each publish is a new version. |
-| `Providers`, `Catalog`, `CreateProvider`, `PublishProvider` | Manage model providers and their keys. |
-| `Bases(ctx)` | List the bases a function can boot. |
-| `VerifyWebhook(publicKey, header, body, now)` | Check a webhook and return its event. |
-
-A refused request returns a `*jinn.Error` with the HTTP `Status`, a stable `Code` and the API's `Message`. Switch on `Code`: for example `no_credit`, `suspended` or `not_found`. The [API docs](https://docs.usejinn.com/api#errors) list every code.
-
-## Links
-
-- [Docs](https://docs.usejinn.com): functions, runs, webhooks and examples.
-- [API](https://docs.usejinn.com/api) and [OpenAPI](https://docs.usejinn.com/openapi.json).
-- Licence: MIT.
-
-This repository is published from Jinn's main source. Open issues here.
+| `VerifyWebhook(publicKey, header, body, now)` | Check a webhook's signature and read its event. |
