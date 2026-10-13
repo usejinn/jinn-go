@@ -104,12 +104,13 @@ done, err := c.Finish(ctx, run.ID, jinn.FinishArgs{State: jinn.Succeeded})
 | `Run(ctx, id)` / `Wait(ctx, id)` / `WaitReady(ctx, id)` | Read a run; read it until it ends, or until its setup has finished. |
 | `Runs(ctx, RunsQuery)` | List runs, newest first, a page at a time. |
 | `Log(ctx, id)` | The run's log so far: setup, commands, the agent's messages and tool calls. |
-| `SendCommand(ctx, run, kind, args)` | Send a command: `bash`, `read`, `write`, `edit`, `list`, `put`, `get` or `finish`. |
+| `SendCommand(ctx, run, kind, args)` | Send a command: `bash`, `read`, `write`, `edit`, `list`, `put`, `get`, `terminal` or `finish`. |
 | `Command(ctx, run, id, wait)` / `WaitCommand(ctx, run, id)` | Read a command; read it until it ends. |
 | `Commands(ctx, run, since, wait)` | The run's commands that changed after a sequence. |
 | `CommandOutput(ctx, run, id, after, wait)` | What a bash command has written so far. |
 | `CancelCommand(ctx, run, id)` | Cancel a command. |
 | `Exec`, `Put`, `Get`, `Finish` | Send a command of that kind and wait for its result. |
+| `OpenTerminal(ctx, run, rows, cols, env)` | Start a shell in a run: the relay's address and route, and the end-to-end channel to seal and open its frames with (connect with any WebSocket client). |
 | `Images(ctx)` / `Image(ctx, id)` / `DeleteImage(ctx, id)` | The account's images and Jinn's bases. |
 | `Tools(ctx)` | The standard tools' schemas. |
 | `Upload(ctx, data)` / `UploadFolder(ctx, dir)` | Upload a file, or a folder as a `.tar.gz`. Returns a `file_…` id. |
