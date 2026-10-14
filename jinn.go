@@ -235,6 +235,13 @@ func (c *Client) Publish(ctx context.Context, id string, def Definition) (Versio
 	return v, c.do(ctx, "POST", "/v1/functions/"+url.PathEscape(id)+"/versions", def, &v)
 }
 
+// DeleteFunction deletes a function, its versions and their secrets. Its
+// runs and their images stay. While a run of it is queued or running, the
+// API refuses with runs_active.
+func (c *Client) DeleteFunction(ctx context.Context, id string) error {
+	return c.do(ctx, "DELETE", "/v1/functions/"+url.PathEscape(id), nil, nil)
+}
+
 // ── Providers ────────────────────────────────────────────────────────
 
 // Model is how runs talk to a model.

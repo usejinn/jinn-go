@@ -100,6 +100,7 @@ done, err := c.Finish(ctx, run.ID, jinn.FinishArgs{State: jinn.Succeeded})
 
 | Call | What it does |
 |---|---|
+| `Functions(ctx)` / `Function(ctx, id)` / `CreateFunction(ctx, name, def)` / `Publish(ctx, id, def)` / `DeleteFunction(ctx, id)` | Read, publish and delete functions. Each publish is a new version. |
 | `StartRun(ctx, function, RunRequest)` | Start a run. Every call is a new run. |
 | `Run(ctx, id)` / `Wait(ctx, id)` / `WaitReady(ctx, id)` | Read a run; read it until it ends, or until its setup has finished. |
 | `Runs(ctx, RunsQuery)` | List runs, newest first, a page at a time. |
