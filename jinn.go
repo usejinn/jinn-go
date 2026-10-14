@@ -286,6 +286,14 @@ func (c *Client) Providers(ctx context.Context) ([]Provider, error) {
 	return out.Providers, c.do(ctx, "GET", "/v1/providers", nil, &out)
 }
 
+// DeleteProvider deletes a provider, its versions and their keys. While the
+// latest version of a function names it, the API refuses with
+// provider_in_use; while a run that uses it is queued or running, with
+// runs_active.
+func (c *Client) DeleteProvider(ctx context.Context, id string) error {
+	return c.do(ctx, "DELETE", "/v1/providers/"+url.PathEscape(id), nil, nil)
+}
+
 // Catalog lists the models a vendor key can use; the key is kept nowhere.
 func (c *Client) Catalog(ctx context.Context, vendor, key string) ([]CatalogModel, error) {
 	var out struct {
