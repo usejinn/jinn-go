@@ -21,8 +21,8 @@ import (
 // half of an ECDH P-256 key exchange and returns the relay's address, the
 // route and the channel: connect a WebSocket to RelayURL + "?route=" +
 // Route + "&side=caller", send Seal'd frames as binary messages, and Open
-// what comes back. Jinn's service (service/terminal.go) implements the same
-// channel; a test vector keeps them equal.
+// what comes back. Jinn's hosts use this channel too (service/host/terminal.go);
+// the console and the TypeScript SDK implement it, and a test vector keeps them equal.
 //
 // A frame is its kind (one byte), its sequence (eight bytes, from zero in
 // each direction) and the sealed data.

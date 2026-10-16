@@ -7,8 +7,9 @@ import (
 	"testing"
 )
 
-// The channel's test vector, the same as service/terminal_test.go's and
-// ui/terminal.test.mjs's, so the CLI, the host and the console agree.
+// The channel's test vector, the same as ui/terminal.test.mjs's and the
+// TypeScript SDK's: the CLI and Jinn's hosts (this package), the console and
+// the TypeScript SDK agree.
 const (
 	vectorCallerKey = "BGOmXGIuNXXScxSZ6XmQkimNWV0Eln18A6TCJeH-uKAQCGmgfusQCN41WuAADoO2Ma_6IiPOfnPLcU_Y213fpIU"
 	vectorHostKey   = "BJTKikBVEn7T_SwODdeALVNWEgGzMxILOgq2z3pDgdNJMWih1H7JRArE8C_I6ZCrTERJU0xfwZCM3xm93jJRmgQ"
