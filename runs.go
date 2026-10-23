@@ -112,7 +112,9 @@ type Usage struct {
 // RunRequest starts a run. Version 0 is the function's latest. A function
 // with an agent needs a Prompt; one without refuses it. Image boots another
 // disk than the function's; Environment adds variables, or replaces the
-// function's by name.
+// function's by name. IdempotencyKey goes as the Idempotency-Key header: a
+// start of the same function with the same key in the last 24 hours returns
+// that run instead of a new one.
 type RunRequest struct {
 	Version           int      `json:"version,omitempty"`
 	Prompt            string   `json:"prompt,omitempty"`
@@ -121,12 +123,18 @@ type RunRequest struct {
 	Input             string   `json:"input,omitempty"`
 	Webhook           string   `json:"webhook,omitempty"`
 	ExternalReference string   `json:"external_reference,omitempty"`
+	IdempotencyKey    string   `json:"-"`
 }
 
-// StartRun starts a run of a function; every call is a new run.
+// StartRun starts a run of a function. Each call is a new run, unless it
+// repeats an IdempotencyKey.
 func (c *Client) StartRun(ctx context.Context, function string, in RunRequest) (Run, error) {
 	var r Run
-	return r, c.do(ctx, "POST", "/v1/functions/"+url.PathEscape(function)+"/runs", in, &r)
+	var h http.Header
+	if in.IdempotencyKey != "" {
+		h = http.Header{"Idempotency-Key": {in.IdempotencyKey}}
+	}
+	return r, c.send(ctx, "POST", "/v1/functions/"+url.PathEscape(function)+"/runs", h, in, &r)
 }
 
 // Run reads a run.

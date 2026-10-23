@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +95,29 @@ func TestExecAndFinish(t *testing.T) {
 	}
 	if _, err := c.Run(context.Background(), "run_x"); err == nil || err.(*Error).Code != "not_found" {
 		t.Fatalf("error %v", err)
+	}
+}
+
+// IdempotencyKey travels as the Idempotency-Key header, never in the body.
+func TestStartRunSendsTheIdempotencyKey(t *testing.T) {
+	var header, body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header = r.Header.Get("Idempotency-Key")
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"run_1","state":"queued"}`))
+	}))
+	defer srv.Close()
+	c := New("jinn_test")
+	c.BaseURL = srv.URL
+	if _, err := c.StartRun(context.Background(), "fnc_1", RunRequest{Prompt: "x", IdempotencyKey: "evt_1"}); err != nil {
+		t.Fatal(err)
+	}
+	if header != "evt_1" || strings.Contains(body, "evt_1") || strings.Contains(body, "dempotency") {
+		t.Fatalf("header %q, body %s", header, body)
+	}
+	if _, err := c.StartRun(context.Background(), "fnc_1", RunRequest{Prompt: "x"}); err != nil || header != "" {
+		t.Fatalf("no key sends no header: %q, %v", header, err)
 	}
 }

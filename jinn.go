@@ -58,6 +58,11 @@ func (e *Error) Error() string { return fmt.Sprintf("jinn: %d %s: %s", e.Status,
 
 // do sends a JSON request and decodes the JSON answer into out.
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	return c.send(ctx, method, path, nil, in, out)
+}
+
+// send is do with more request headers.
+func (c *Client) send(ctx context.Context, method, path string, header http.Header, in, out any) error {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -77,6 +82,9 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("User-Agent", "jinn-go")
+	for k, v := range header {
+		req.Header[k] = v
+	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return err
