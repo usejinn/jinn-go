@@ -173,3 +173,42 @@ func TestLogReadsItsPartsTogether(t *testing.T) {
 		}
 	}
 }
+
+// TestLogSinceReadsEachPartOnce lists two parts, then four: one new part
+// sorts between the two already read. The second call reads only the new
+// parts, whatever their place in the list.
+func TestLogSinceReadsEachPartOnce(t *testing.T) {
+	listed := []string{"0001-host", "0003-agent"}
+	reads := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/runs/run_1/log" {
+			var urls []string
+			for _, p := range listed {
+				urls = append(urls, "http://"+r.Host+"/log/"+p+".ndjson?X-Amz-Signature="+fmt.Sprint(len(reads)))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"parts": urls})
+			return
+		}
+		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/log/"), ".ndjson")
+		reads[name]++
+		fmt.Fprintf(w, `{"at":"2026-10-26T13:00:00Z","kind":"%s"}`+"\n", name)
+	}))
+	defer srv.Close()
+	c := New("k")
+	c.BaseURL = srv.URL
+	read := map[string]bool{}
+	first, err := c.LogSince(context.Background(), "run_1", read)
+	if err != nil || len(first) != 2 {
+		t.Fatalf("first: %d events, %v", len(first), err)
+	}
+	listed = []string{"0001-host", "0002-host", "0003-agent", "0004-agent"}
+	second, err := c.LogSince(context.Background(), "run_1", read)
+	if err != nil || len(second) != 2 || second[0].Kind != "0002-host" || second[1].Kind != "0004-agent" {
+		t.Fatalf("second: %+v, %v", second, err)
+	}
+	for name, n := range reads {
+		if n != 1 {
+			t.Fatalf("%s was read %d times", name, n)
+		}
+	}
+}

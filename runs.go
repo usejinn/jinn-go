@@ -199,13 +199,33 @@ const logReaders = 8
 // Log reads a run's log so far, in time order. A running run adds to it
 // about every 30 seconds.
 func (c *Client) Log(ctx context.Context, id string) ([]LogEvent, error) {
+	return c.LogSince(ctx, id, map[string]bool{})
+}
+
+// LogSince reads the parts of a run's log that read does not name, adds
+// them to read, and returns their events in time order. A part never
+// changes once written, so a caller that follows a run keeps read and
+// reads each part once. Parts are named by their path: the host and the
+// agent write their own, so a new part can be listed before one already
+// read, and its events can be older than ones read before.
+func (c *Client) LogSince(ctx context.Context, id string, read map[string]bool) ([]LogEvent, error) {
 	var parts struct {
 		Parts []string `json:"parts"`
 	}
 	if err := c.do(ctx, "GET", "/v1/runs/"+url.PathEscape(id)+"/log", nil, &parts); err != nil {
 		return nil, err
 	}
-	texts, errs := make([][]byte, len(parts.Parts)), make([]error, len(parts.Parts))
+	var urls, names []string
+	for _, u := range parts.Parts {
+		name := u
+		if p, err := url.Parse(u); err == nil {
+			name = p.Path
+		}
+		if !read[name] {
+			urls, names = append(urls, u), append(names, name)
+		}
+	}
+	texts, errs := make([][]byte, len(urls)), make([]error, len(urls))
 	next := make(chan int)
 	var wg sync.WaitGroup
 	for range logReaders {
@@ -213,20 +233,25 @@ func (c *Client) Log(ctx context.Context, id string) ([]LogEvent, error) {
 		go func() {
 			defer wg.Done()
 			for i := range next {
-				texts[i], errs[i] = c.get(ctx, parts.Parts[i])
+				texts[i], errs[i] = c.get(ctx, urls[i])
 			}
 		}()
 	}
-	for i := range parts.Parts {
+	for i := range urls {
 		next <- i
 	}
 	close(next)
 	wg.Wait()
-	var events []LogEvent
-	for i, data := range texts {
-		if errs[i] != nil {
-			return nil, errs[i]
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
 		}
+	}
+	for _, name := range names {
+		read[name] = true
+	}
+	var events []LogEvent
+	for _, data := range texts {
 		for _, line := range bytes.Split(data, []byte("\n")) {
 			var m map[string]any
 			if json.Unmarshal(line, &m) != nil {

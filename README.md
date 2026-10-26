@@ -105,6 +105,7 @@ done, err := c.Finish(ctx, run.ID, jinn.FinishArgs{State: jinn.Succeeded})
 | `Run(ctx, id)` / `Wait(ctx, id)` / `WaitReady(ctx, id)` | Read a run; read it until it ends, or until its setup has finished. |
 | `Runs(ctx, RunsQuery)` | List runs, newest first, a page at a time. |
 | `Log(ctx, id)` | The run's log so far: setup, commands, the agent's messages and tool calls. |
+| `LogSince(ctx, id, read)` | The events of the log's parts that `read` does not name yet; it adds them to `read`. Keep `read` to follow a run and read each part once. |
 | `SendCommand(ctx, run, kind, args)` | Send a command: `bash`, `read`, `write`, `edit`, `list`, `put`, `get`, `terminal` or `finish`. |
 | `Command(ctx, run, id, wait)` / `WaitCommand(ctx, run, id)` | Read a command; read it until it ends. |
 | `Commands(ctx, run, since, wait)` | The run's commands that changed after a sequence. |
