@@ -8,13 +8,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // TestFoldersTravelAsTarGz uploads a folder and downloads it back as an
@@ -119,5 +122,54 @@ func TestStartRunSendsTheIdempotencyKey(t *testing.T) {
 	}
 	if _, err := c.StartRun(context.Background(), "fnc_1", RunRequest{Prompt: "x"}); err != nil || header != "" {
 		t.Fatalf("no key sends no header: %q, %v", header, err)
+	}
+}
+
+// TestLogReadsItsPartsTogether serves a log of many parts, each held until
+// logReaders are asked for at once (a reader that takes them one at a time
+// gets an error), and expects every event, in time order.
+func TestLogReadsItsPartsTogether(t *testing.T) {
+	const parts = 40
+	var mu sync.Mutex
+	waiting, gate := 0, make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/runs/run_1/log" {
+			var urls []string
+			for i := 0; i < parts; i++ {
+				urls = append(urls, fmt.Sprintf("http://%s/part/%d", r.Host, i))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"parts": urls})
+			return
+		}
+		mu.Lock()
+		if waiting++; waiting == logReaders {
+			close(gate)
+		}
+		mu.Unlock()
+		select {
+		case <-gate:
+		case <-time.After(2 * time.Second):
+			http.Error(w, "the parts were read one at a time", http.StatusConflict)
+			return
+		}
+		var i int
+		_, _ = fmt.Sscanf(r.URL.Path, "/part/%d", &i)
+		// Each part's event is a second before the last part's, so only sorting puts them in order.
+		fmt.Fprintf(w, `{"at":"%s","kind":"model"}`+"\n", time.Date(2026, 10, 26, 13, 0, parts-i, 0, time.UTC).Format(time.RFC3339Nano))
+	}))
+	defer srv.Close()
+	c := New("k")
+	c.BaseURL = srv.URL
+	events, err := c.Log(context.Background(), "run_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != parts {
+		t.Fatalf("%d events", len(events))
+	}
+	for i := 1; i < len(events); i++ {
+		if events[i].At.Before(events[i-1].At) {
+			t.Fatalf("event %d is out of order", i)
+		}
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -191,6 +192,10 @@ type LogEvent struct {
 	Fields map[string]any
 }
 
+// logReaders is how many parts of a log Log reads at once: a long run's log
+// is a thousand parts or more, and one at a time takes over a minute.
+const logReaders = 8
+
 // Log reads a run's log so far, in time order. A running run adds to it
 // about every 30 seconds.
 func (c *Client) Log(ctx context.Context, id string) ([]LogEvent, error) {
@@ -200,11 +205,27 @@ func (c *Client) Log(ctx context.Context, id string) ([]LogEvent, error) {
 	if err := c.do(ctx, "GET", "/v1/runs/"+url.PathEscape(id)+"/log", nil, &parts); err != nil {
 		return nil, err
 	}
+	texts, errs := make([][]byte, len(parts.Parts)), make([]error, len(parts.Parts))
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for range logReaders {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				texts[i], errs[i] = c.get(ctx, parts.Parts[i])
+			}
+		}()
+	}
+	for i := range parts.Parts {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
 	var events []LogEvent
-	for _, u := range parts.Parts {
-		data, err := c.get(ctx, u)
-		if err != nil {
-			return nil, err
+	for i, data := range texts {
+		if errs[i] != nil {
+			return nil, errs[i]
 		}
 		for _, line := range bytes.Split(data, []byte("\n")) {
 			var m map[string]any
