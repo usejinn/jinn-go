@@ -22,8 +22,6 @@ const (
 	KindPut    = "put"
 	KindGet    = "get"
 	KindFinish = "finish"
-	// KindTerminal starts a shell; OpenTerminal sends it.
-	KindTerminal = "terminal"
 )
 
 // Command states.

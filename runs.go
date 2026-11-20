@@ -35,8 +35,9 @@ const (
 type Run struct {
 	ID       string `json:"id"`
 	Account  string `json:"account"`
-	Function string `json:"function"`
-	Version  int    `json:"version"`
+	Function string `json:"function,omitempty"`
+	Version  int    `json:"version,omitempty"`
+	Machine  string `json:"machine,omitempty"`
 	// Image is the disk the run booted: an img_… or a base's name.
 	Image string `json:"image"`
 	Size  string `json:"size"`
