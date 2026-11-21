@@ -96,23 +96,36 @@ done, err := c.Finish(ctx, run.ID, jinn.FinishArgs{State: jinn.Succeeded})
 
 `Tools` returns the standard tools' schemas, as Jinn's agent shows them to its model. A loop of your own can show its model the same tools and send each call as the command of the same kind.
 
+## Persistent SSH machines
+
+A machine is a persistent Linux VM backed by an image lineage (`<slug>@ssh.usejinn.com`). It wakes automatically on SSH and saves its disk after idle:
+
+```go
+key, err := c.AddSSHKey(ctx, jinn.SSHKeyRequest{Name: "laptop", PublicKey: pubKey})
+m, err := c.CreateMachine(ctx, jinn.MachineRequest{Name: "dev", Size: "m", IdleMinutes: 10})
+fmt.Println("ssh", m.SSH)
+```
+
 ## Reference
 
 | Call | What it does |
 |---|---|
 | `Functions(ctx)` / `Function(ctx, id)` / `CreateFunction(ctx, name, def)` / `Publish(ctx, id, def)` / `DeleteFunction(ctx, id)` | Read, publish and delete functions. Each publish is a new version. |
+| `Machines(ctx)` / `CreateMachine(ctx, req)` / `Machine(ctx, id)` / `UpdateMachine(ctx, id, req)` / `DeleteMachine(ctx, id)` | Manage persistent SSH machines. |
+| `StartMachine(ctx, id)` / `StopMachine(ctx, id)` / `SnapshotMachine(ctx, id)` | Start, stop and snapshot machines. |
+| `SSHKeys(ctx)` / `AddSSHKey(ctx, req)` / `DeleteSSHKey(ctx, id)` | Manage authorised account SSH public keys. |
 | `StartRun(ctx, function, RunRequest)` | Start a run. Each call is a new run, unless it repeats `IdempotencyKey` (sent as the `Idempotency-Key` header): then it returns the first run. |
 | `Run(ctx, id)` / `Wait(ctx, id)` / `WaitReady(ctx, id)` | Read a run; read it until it ends, or until its setup has finished. |
 | `Runs(ctx, RunsQuery)` | List runs, newest first, a page at a time. |
 | `Log(ctx, id)` | The run's log so far: setup, commands, the agent's messages and tool calls. |
 | `LogSince(ctx, id, read)` | The events of the log's parts that `read` does not name yet; it adds them to `read`. Keep `read` to follow a run and read each part once. |
-| `SendCommand(ctx, run, kind, args)` | Send a command: `bash`, `read`, `write`, `edit`, `list`, `put`, `get`, `terminal` or `finish`. |
+| `SendCommand(ctx, run, kind, args)` | Send a command: `bash`, `read`, `write`, `edit`, `list`, `put`, `get` or `finish`. |
 | `Command(ctx, run, id, wait)` / `WaitCommand(ctx, run, id)` | Read a command; read it until it ends. |
 | `Commands(ctx, run, since, wait)` | The run's commands that changed after a sequence. |
 | `CommandOutput(ctx, run, id, after, wait)` | What a bash command has written so far. |
 | `CancelCommand(ctx, run, id)` | Cancel a command. |
 | `Exec`, `Put`, `Get`, `Finish` | Send a command of that kind and wait for its result. |
-| `OpenTerminal(ctx, run, rows, cols, env)` | Start a shell in a run: the relay's address and route, and the end-to-end channel to seal and open its frames with (connect with any WebSocket client). |
+| `OpenTerminal(ctx, run)` / `OpenMachineTerminal(ctx, machine)` | Request a single-use 30-second WebSocket terminal ticket (`ticket.URL(rows, cols)`, `EncodeTerminalFrame`, `EncodeResizeFrame`, `DecodeTerminalFrame`). |
 | `Images(ctx)` / `Image(ctx, id)` / `DeleteImage(ctx, id)` | The account's images and Jinn's bases. |
 | `Tools(ctx)` | The standard tools' schemas. |
 | `Upload(ctx, data)` / `UploadFolder(ctx, dir)` | Upload a file, or a folder as a `.tar.gz`. Returns a `file_…` id. |
