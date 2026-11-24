@@ -98,12 +98,26 @@ done, err := c.Finish(ctx, run.ID, jinn.FinishArgs{State: jinn.Succeeded})
 
 ## Persistent SSH machines
 
-A machine is a persistent Linux VM backed by an image lineage (`<slug>@ssh.usejinn.com`). It wakes automatically on SSH and saves its disk after idle:
+A machine is a persistent Linux VM backed by an image lineage (`<slug>@ssh.usejinn.com`). It wakes on SSH or `StartMachine`, stays awake while any activity lease (SSH connection, API heartbeat, or command) is live, and saves its disk after idle:
 
 ```go
 key, err := c.AddSSHKey(ctx, jinn.SSHKeyRequest{Name: "laptop", PublicKey: pubKey})
-m, err := c.CreateMachine(ctx, jinn.MachineRequest{Name: "dev", Size: "m", IdleMinutes: 10})
+m, err := c.CreateMachine(ctx, jinn.MachineRequest{
+	Name:        "dev",
+	Size:        "m",
+	IdleMinutes: 10,
+	Setup:       []string{"echo ready > /tmp/booted"},
+	Environment: []jinn.EnvVar{{Name: "MODE", Value: "dev"}, {Name: "API_TOKEN", Secret: token}},
+	Webhook:     "https://example.com/jinn-webhook",
+})
 fmt.Println("ssh", m.SSH)
+
+// Wake with per-start ephemeral env and keep awake with a named activity lease:
+m, err = c.StartMachineWith(ctx, m.ID, jinn.MachineStartRequest{
+	Environment: []jinn.EnvVar{{Name: "SESSION_TOKEN", Secret: sessionToken}},
+})
+_, err = c.HeartbeatMachine(ctx, m.ID, jinn.MachineHeartbeatRequest{LeaseID: "turn_1", TTLSeconds: 300})
+_, err = c.HeartbeatMachine(ctx, m.ID, jinn.MachineHeartbeatRequest{LeaseID: "turn_1", Release: true})
 ```
 
 ## Reference
@@ -111,8 +125,9 @@ fmt.Println("ssh", m.SSH)
 | Call | What it does |
 |---|---|
 | `Functions(ctx)` / `Function(ctx, id)` / `CreateFunction(ctx, name, def)` / `Publish(ctx, id, def)` / `DeleteFunction(ctx, id)` | Read, publish and delete functions. Each publish is a new version. |
-| `Machines(ctx)` / `CreateMachine(ctx, req)` / `Machine(ctx, id)` / `UpdateMachine(ctx, id, req)` / `DeleteMachine(ctx, id)` | Manage persistent SSH machines. |
-| `StartMachine(ctx, id)` / `StopMachine(ctx, id)` / `SnapshotMachine(ctx, id)` | Start, stop and snapshot machines. |
+| `Machines(ctx)` / `CreateMachine(ctx, req)` / `Machine(ctx, id)` / `UpdateMachine(ctx, id, req)` / `DeleteMachine(ctx, id)` | Manage persistent SSH machines (including persistent `Setup`, `Environment`, `Webhook`, `ExternalReference`, `TimeoutMinutes`). |
+| `StartMachine(ctx, id)` / `StartMachineWith(ctx, id, req)` / `StopMachine(ctx, id)` / `SnapshotMachine(ctx, id)` | Start (with optional per-wake `Environment`/`Webhook`/`ExternalReference`), stop and snapshot machines. |
+| `HeartbeatMachine(ctx, id, req)` | Acquire, extend or release an activity lease (`LeaseID`, `TTLSeconds`, `Release`) to keep a running machine awake. |
 | `SSHKeys(ctx)` / `AddSSHKey(ctx, req)` / `DeleteSSHKey(ctx, id)` | Manage authorised account SSH public keys. |
 | `StartRun(ctx, function, RunRequest)` | Start a run. Each call is a new run, unless it repeats `IdempotencyKey` (sent as the `Idempotency-Key` header): then it returns the first run. |
 | `Run(ctx, id)` / `Wait(ctx, id)` / `WaitReady(ctx, id)` | Read a run; read it until it ends, or until its setup has finished. |
