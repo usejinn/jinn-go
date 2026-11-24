@@ -46,6 +46,11 @@ type Machine struct {
 	Size              string     `json:"size"`
 	Image             string     `json:"image"`
 	ImageDeleted      bool       `json:"image_deleted,omitempty"`
+	Setup             []string   `json:"setup,omitempty"`
+	Environment       []EnvVar   `json:"environment,omitempty"`
+	Webhook           string     `json:"webhook,omitempty"`
+	ExternalReference string     `json:"external_reference,omitempty"`
+	TimeoutMinutes    int        `json:"timeout_minutes,omitempty"`
 	IdleMinutes       int        `json:"idle_minutes"`
 	State             string     `json:"state"`
 	ActiveRun         string     `json:"active_run,omitempty"`
@@ -57,16 +62,38 @@ type Machine struct {
 }
 
 type MachineRequest struct {
-	Name        string `json:"name,omitempty"`
-	Size        string `json:"size,omitempty"`
-	Image       string `json:"image,omitempty"`
-	IdleMinutes int    `json:"idle_minutes,omitempty"`
+	Name              string   `json:"name,omitempty"`
+	Size              string   `json:"size,omitempty"`
+	Image             string   `json:"image,omitempty"`
+	IdleMinutes       int      `json:"idle_minutes,omitempty"`
+	Setup             []string `json:"setup,omitempty"`
+	Environment       []EnvVar `json:"environment,omitempty"`
+	Webhook           string   `json:"webhook,omitempty"`
+	ExternalReference string   `json:"external_reference,omitempty"`
+	TimeoutMinutes    int      `json:"timeout_minutes,omitempty"`
 }
 
 type MachineUpdateRequest struct {
-	Name        *string `json:"name,omitempty"`
-	Size        *string `json:"size,omitempty"`
-	IdleMinutes *int    `json:"idle_minutes,omitempty"`
+	Name              *string   `json:"name,omitempty"`
+	Size              *string   `json:"size,omitempty"`
+	IdleMinutes       *int      `json:"idle_minutes,omitempty"`
+	Setup             *[]string `json:"setup,omitempty"`
+	Environment       *[]EnvVar `json:"environment,omitempty"`
+	Webhook           *string   `json:"webhook,omitempty"`
+	ExternalReference *string   `json:"external_reference,omitempty"`
+	TimeoutMinutes    *int      `json:"timeout_minutes,omitempty"`
+}
+
+type MachineStartRequest struct {
+	Environment       []EnvVar `json:"environment,omitempty"`
+	Webhook           string   `json:"webhook,omitempty"`
+	ExternalReference string   `json:"external_reference,omitempty"`
+}
+
+type MachineHeartbeatRequest struct {
+	LeaseID    string `json:"lease_id,omitempty"`
+	TTLSeconds int    `json:"ttl_seconds,omitempty"`
+	Release    bool   `json:"release,omitempty"`
 }
 
 func (c *Client) Machines(ctx context.Context) ([]Machine, error) {
@@ -96,8 +123,12 @@ func (c *Client) DeleteMachine(ctx context.Context, id string) error {
 }
 
 func (c *Client) StartMachine(ctx context.Context, id string) (Machine, error) {
+	return c.StartMachineWith(ctx, id, MachineStartRequest{})
+}
+
+func (c *Client) StartMachineWith(ctx context.Context, id string, req MachineStartRequest) (Machine, error) {
 	var m Machine
-	return m, c.do(ctx, "POST", "/v1/machines/"+url.PathEscape(id)+"/start", nil, &m)
+	return m, c.do(ctx, "POST", "/v1/machines/"+url.PathEscape(id)+"/start", req, &m)
 }
 
 func (c *Client) StopMachine(ctx context.Context, id string) (Machine, error) {
@@ -108,4 +139,9 @@ func (c *Client) StopMachine(ctx context.Context, id string) (Machine, error) {
 func (c *Client) SnapshotMachine(ctx context.Context, id string) (Image, error) {
 	var img Image
 	return img, c.do(ctx, "POST", "/v1/machines/"+url.PathEscape(id)+"/snapshot", nil, &img)
+}
+
+func (c *Client) HeartbeatMachine(ctx context.Context, id string, req MachineHeartbeatRequest) (Machine, error) {
+	var m Machine
+	return m, c.do(ctx, "POST", "/v1/machines/"+url.PathEscape(id)+"/heartbeat", req, &m)
 }
